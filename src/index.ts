@@ -1,18 +1,39 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Bind resources to your worker in `wrangler.jsonc`. After adding bindings, a type definition for the
- * `Env` object can be regenerated with `npm run cf-typegen`.
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
 export default {
-	async fetch(request, env, ctx): Promise<Response> {
-		return new Response('Hello World!');
-	},
-} satisfies ExportedHandler<Env>;
+  async fetch(request: Request, env: any) {
+    const raw = await env.test_kv.get("latest_articles");
+    console.log("RAW:", raw);
+
+    let articles: any[] = [];
+    try {
+      articles = raw ? JSON.parse(raw) : [];
+    } catch {
+      articles = [];
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <title>NewsLite UI</title>
+      </head>
+      <body>
+        <h1>📰 NewsLite UI (PoC)</h1>
+        ${articles
+          .map(
+            (a) => `
+            <div>
+              <a href="${a.url}" target="_blank">${a.title}</a>
+              <p>${a.summary}</p>
+            </div>`
+          )
+          .join("")}
+      </body>
+      </html>
+    `;
+
+    return new Response(html, {
+      headers: { "Content-Type": "text/html; charset=UTF-8" },
+    });
+  },
+};
