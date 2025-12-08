@@ -9,4 +9,3 @@ enabled = true
 binding = "test_kv"
 id = "d940cc2f9bda4aadaf0602c3306ab105"
 preview_id = "e5c9db6c082c4cf3b0dbaea86972159e"
-remote = true
