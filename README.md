@@ -1,148 +1,185 @@
-# README.md
-
-Minimal, clean, and useful for external developers
-
 # NewsLite UI — Cloudflare Workers + KV Prototype
 
-This project is a minimal UI layer for NewsLite, implemented as a server-rendered Cloudflare Worker.
-The Worker fetches article data stored in Cloudflare Workers KV and renders a simple HTML page.
+A minimal, server-rendered UI for **NewsLite**, powered by **Cloudflare Workers** and **Workers KV**.
+This project fetches pre-generated article summaries (created by a Python backend) from KV and renders them as a clean HTML page on the edge.
 
-The goal is to provide a lightweight, serverless UI suitable for global deployment on Cloudflare’s edge network.
+The goal is to keep the UI lightweight, serverless, globally distributed, and easy to maintain.
 
-## Features
+---
 
-⚡ Cloudflare Workers (TypeScript)
+## ✨ Features
 
-- Reads article JSON from Workers KV
+- ⚡ **Cloudflare Workers (TypeScript)** — zero infrastructure, global by default
+- 🗂 **Daily article storage in Workers KV** — using structured keys like `articles/YYYY-MM-DD`
+- 🎨 **Zero-JS, server-rendered HTML** (Bootstrap-ready)
+- 🔀 **Automatic topic grouping** (`technology`, `climate`, `education`, …)
+- 🧪 **Preview / Production KV separation** (Cloudflare best practice)
+- 🛠 **Fully remote KV access during development** (`remote=true`)
 
-- Zero-JS, server-rendered HTML template
+---
 
--  Ready for production (KV binding separation: production / preview)
+## 📁 Project Structure
 
--  Fast deployment via wrangler publish
-
-## Project Structure
 ```
 newslite-ui/
 ├── src/
-│   └── index.ts        # Worker entry point
+│   └── index.ts                              # Worker logic (routing + KV lookup + HTML output)
+├── scripts/
+│   └── daily_upload_to_kv.py                 # Python uploader for daily JSON → KV
 ├── data/
-│   └── latest_articles.json.example
-├── wrangler.toml       # Cloudflare Worker configuration
-├── package.json
-└── tsconfig.json
+│   └── daily_summary_YYYY-MM-DD.json.example
+├── wrangler.example.toml                     # Safe template (no secrets)
+├── wrangler.toml                             # NOT committed; developer-specific config
+└── package.json
 ```
 
-## Development Setup
-1. Install Dependencies
+> `wrangler.toml` is intentionally **excluded** from Git history.
 
-```
+---
+
+## Installation
+
+```bash
 npm install
 ```
 
-2. Configure Cloudflare KV (required)
+---
 
-Cloudflare Workers uses two KV namespaces for each binding:
+## Cloudflare KV Configuration (Required)
 
-- `id`: the KV namespace used when the Worker is deployed (production mode)
-- `preview_id`: the KV namespace used during `wrangler dev` (preview mode)
+Workers KV requires **two namespaces** per binding:
 
-This project uses:
+| Purpose        | wrangler.toml key | Description                      |
+|----------------|-------------------|----------------------------------|
+| Production KV  | `id`              | Used after `wrangler publish`    |
+| Preview KV     | `preview_id`      | Used in `wrangler dev`           |
 
-- test_kv (production namespace)
-- test_kv_preview (preview namespace)
-
-Example configuration inside wrangler.toml:
+Example remote-enabled binding:
 
 ```toml
 [[kv_namespaces]]
-binding = "test_kv"
-id = "<your-production-namespace-id>"
-preview_id = "<your-preview-namespace-id>"
+binding = "newslite_kv"
+id = "SET-IN-YOUR-DASHBOARD"
+preview_id = "SET-IN-YOUR-DASHBOARD"
 remote = true
 ```
 
-remote = true ensures that wrangler dev always reads from remote preview KV.
+Copy the example file:
 
-## Running Locally
-
+```bash
+cp wrangler.example.toml wrangler.toml
 ```
+
+Then fill in your real KV IDs from Cloudflare Dashboard.
+
+---
+
+##  Running Locally (with Remote KV)
+
+```bash
 npx wrangler dev
 ```
 
 Then open:
 
-http://localhost:8787
-
-
-The Worker will fetch articles from KV and render them as HTML.
-
-## Deploying
-
 ```
+http://localhost:8787/?date=2025-12-09
+```
+
+Because `remote = true`, development mode always reads from preview KV — not local Miniflare storage.
+
+---
+
+## Deploying to Cloudflare
+
+```bash
 npx wrangler publish
 ```
 
-After publishing, the Worker automatically uses:
+After deployment:
 
-- preview_id in dev
+- `dev` → uses `preview_id`
+- `production` → uses `id`
 
-- id in production
+No further configuration is required.
 
-No additional changes are required.
+---
 
-## Adding Data to KV (Example)
+## Writing Daily Article Data to KV
 
-Upload JSON:
+### Example manual upload:
 
-```
-npx wrangler kv key put latest_articles "$(cat ./data/latest_articles.json.example)" \
-  --binding=test_kv --remote
-```
-
-Confirm:
-
-```
-npx wrangler kv key get latest_articles --binding=test_kv --remote
+```bash
+npx wrangler kv key put articles/2025-12-09 \
+  "$(cat data/daily_summary_2025-12-09.json.example)" \
+  --binding=newslite_kv --preview --remote
 ```
 
-## Worker Logic (src/index.ts)
+### Check stored data:
 
-The Worker fetches data from KV and renders a minimal UI:
+```bash
+npx wrangler kv key get articles/2025-12-09 \
+  --binding=newslite_kv --preview --remote
+```
 
-```ts
+---
+
+## Automated Upload (Python)
+
+Daily article JSON files (generated by the NewsLite backend) can be uploaded via:
+
+```bash
+PYTHONPATH=. python scripts/daily_upload_to_kv.py
+```
+
+The script:
+
+- Detects today's date
+- Loads `data/daily_summary_YYYY-MM-DD.json`
+- Uploads to `articles/YYYY-MM-DD`
+- Uses `--preview --remote` to ensure correct namespace
+
+---
+
+## Worker Logic (Simplified)
+
+```typescript
 export default {
   async fetch(request, env) {
-    const raw = await env.test_kv.get("latest_articles");
-    const articles = raw ? JSON.parse(raw) : [];
-
-    const html = `
-      <html><body>
-        <h1>📰 NewsLite UI</h1>
-        ${articles.map(a => `
-          <div>
-            <a href="${a.url}">${a.title}</a>
-            <p>${a.summary}</p>
-          </div>
-        `).join("")}
-      </body></html>
-    `;
-
-    return new Response(html, {
-      headers: { "Content-Type": "text/html" },
-    });
-  },
+    return handleRequest(request, env);
+  }
 };
 ```
 
+The Worker:
+
+1. Parses URL query (`?date=YYYY-MM-DD`)
+2. Loads `articles/<date>` from KV
+3. Parses JSON + groups by topic
+4. Renders clean HTML (Bootstrap-ready)
+
+---
+
 ## Requirements
+
 - Node.js 18+
-
 - Cloudflare account
-
 - Wrangler 4.x+
+- Python 3.10+ (for daily upload scripts)
+
+---
+
+## Security Notes
+
+- `wrangler.toml` must not be committed
+- All KV IDs in this repository are placeholders
+- Real IDs should be stored only locally
+- This repository follows Cloudflare's 2024–2025 security guidelines
+
+---
 
 ## License
 
 MIT License.
+
 Feel free to fork and adapt for your own Worker-based UI projects.

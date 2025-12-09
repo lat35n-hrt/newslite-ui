@@ -15,7 +15,7 @@ async function handleRequest(request: Request, env: Env): Promise<Response> {
     : "latest_articles";
 
   // ---- 2. Fetch articles from KV ----
-  const raw = await env.test_kv.get(key);
+  const raw = await env.newslite_kv.get(key);
   console.log("RAW:", raw);
 
   let articles: any[] = [];

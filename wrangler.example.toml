@@ -1,0 +1,12 @@
+name = "newslite-ui"
+main = "src/index.ts"
+compatibility_date = "2025-12-05"
+
+[observability]
+enabled = true
+
+[[kv_namespaces]]
+binding = "newslite_kv"
+id = "SET-IN-YOUR-DASHBOARD"
+preview_id = "SET-IN-YOUR-DASHBOARD"
+remote = true
