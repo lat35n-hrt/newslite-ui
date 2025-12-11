@@ -1,116 +1,139 @@
+// src/index.ts — Bootstrap Audio UI + Topic Grouping
+
+export interface Env {
+  newslite_kv: KVNamespace;
+}
+
 export default {
-  async fetch(request, env) {
-    return handleRequest(request, env);
+  async fetch(request: Request, env: Env): Promise<Response> {
+    try {
+      const url = new URL(request.url);
+      const date = url.searchParams.get("date");
+
+      if (!date) {
+        return new Response(
+          htmlWrapper(`<h2>Please specify ?date=YYYY-MM-DD</h2>`),
+          { headers: { "Content-Type": "text/html" } }
+        );
+      }
+
+      const key = `articles/${date}`;
+      const raw = await env.newslite_kv.get(key);
+
+      if (!raw) {
+        return new Response(
+          htmlWrapper(`<h2>No data found for ${date}</h2>`),
+          { headers: { "Content-Type": "text/html" } }
+        );
+      }
+
+      const articles = JSON.parse(raw);
+      const grouped = groupByTopic(articles);
+
+      const body = renderGroupedArticles(date, grouped);
+
+      return new Response(htmlWrapper(body), {
+        headers: { "Content-Type": "text/html" },
+      });
+    } catch (err: any) {
+      return new Response(`Error: ${err.message}`, { status: 500 });
+    }
   },
 };
 
-async function handleRequest(request: Request, env: Env): Promise<Response> {
-  // ---- 1. Date（?date=YYYY-MM-DD） ----
-  const url = new URL(request.url);
-  const date = url.searchParams.get("date");
+/* --------------------------------------------------
+   Group by topic
+-------------------------------------------------- */
+function groupByTopic(articles: any[]) {
+  const map = new Map<string, any[]>();
 
-  // key
-  const key = date
-    ? `articles/${date}`
-    : "latest_articles";
-
-  // ---- 2. Fetch articles from KV ----
-  const raw = await env.newslite_kv.get(key);
-  console.log("RAW:", raw);
-
-  let articles: any[] = [];
-  try {
-    articles = raw ? JSON.parse(raw) : [];
-  } catch {
-    articles = [];
+  for (const a of articles) {
+    const t = a.topic || "other";
+    if (!map.has(t)) map.set(t, []);
+    map.get(t)!.push(a);
   }
 
-  // ---- 3. Group by topic ----
-  const grouped = groupByTopic(articles);
-
-  // ---- 4. HTML (with Bootstrap) ----
-  const html = renderHTML(grouped, date);
-
-  return new Response(html, {
-    headers: { "Content-Type": "text/html; charset=UTF-8" },
-  });
+  return map;
 }
 
-/**
- * Group by topic
- */
-function groupByTopic(items: any[]): Map<string, any[]> {
-  const groups = new Map<string, any[]>();
+/* --------------------------------------------------
+   HTML Rendering
+-------------------------------------------------- */
 
-  for (const item of items) {
-    const topic = item.topic ? String(item.topic) : "other";
+function renderGroupedArticles(date: string, grouped: Map<string, any[]>) {
+  let html = `<h1 class="mb-4">NewsLite — ${date}</h1>`;
 
-    if (!groups.has(topic)) {
-      groups.set(topic, []);
-    }
-    groups.get(topic)!.push(item);
-  }
-
-  return groups;
-}
-
-/**
- * HTML rendering (minimal Bootstrap)
- */
-function renderHTML(groups: Map<string, any[]>, date: string | null): string {
-  const pageTitle = date
-    ? `NewsLite UI — ${date}`
-    : "NewsLite UI (Latest Articles)";
-
-  let sections = "";
-
-  for (const [topic, items] of groups.entries()) {
-    const itemsHTML = items
-      .map(
-        (a) => `
-          <div class="mb-4">
-            <h5><a href="${a.url}" target="_blank">${a.title}</a></h5>
-            <p class="text-muted">${a.summary}</p>
-          </div>
-        `
-      )
-      .join("");
-
-    sections += `
+  for (const [topic, items] of grouped) {
+    html += `
       <section class="mb-5">
-        <h3 class="border-bottom pb-2 text-capitalize">${topic}</h3>
-        ${itemsHTML || "<p>No articles.</p>"}
+        <h2 class="mb-3 text-primary text-capitalize">${topic}</h2>
+        <div class="row g-4">
+          ${items.map(renderArticleCard).join("")}
+        </div>
       </section>
     `;
   }
 
+  return html;
+}
+
+/* --------------------------------------------------
+   Article Card with Bootstrap
+-------------------------------------------------- */
+function renderArticleCard(article: any) {
+  return `
+    <div class="col-12 col-md-6 col-lg-4">
+      <div class="card shadow-sm h-100">
+        <div class="card-body d-flex flex-column">
+          <h5 class="card-title">
+            <a href="${article.url}" target="_blank">
+              ${article.title}
+            </a>
+          </h5>
+
+          <p class="card-text flex-grow-1">${article.summary}</p>
+
+          ${
+            article.audio
+              ? `<audio controls class="w-100 mt-2">
+                   <source src="${article.audio}" type="audio/mpeg">
+                 </audio>`
+              : `<span class="text-muted">No audio available</span>`
+          }
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+/* --------------------------------------------------
+   Bootstrap Layout Wrapper
+-------------------------------------------------- */
+function htmlWrapper(inner: string) {
   return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>${pageTitle}</title>
+  <title>NewsLite</title>
 
-  <!-- Bootstrap CDN -->
+  <!-- Bootstrap CSS -->
   <link
-    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css"
+    href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
     rel="stylesheet"
-  >
+  />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { padding: 20px; }
+    a { text-decoration: none; }
+    a:hover { text-decoration: underline; }
+  </style>
 </head>
-<body class="bg-light">
-
-  <div class="container py-4">
-
-    <h1 class="mb-4">📰 NewsLite UI</h1>
-
-    <p class="text-secondary">
-      ${date ? `Articles for <strong>${date}</strong>` : "Latest daily summary"}
-    </p>
-
-    ${sections}
-
+<body>
+  <div class="container">
+    ${inner}
   </div>
-
 </body>
 </html>
 `;
