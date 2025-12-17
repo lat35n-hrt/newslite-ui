@@ -10,12 +10,21 @@ export default {
       const url = new URL(request.url);
       const date = url.searchParams.get("date");
 
+      // ★ ADD: redirect to latest if date is not provided
       if (!date) {
-        return new Response(
-          htmlWrapper(`<h2>Please specify ?date=YYYY-MM-DD</h2>`),
-          { headers: { "Content-Type": "text/html" } }
-        );
+        const latestDate = await getLatestDate(env);
+        if (!latestDate) {
+          return new Response(
+            htmlWrapper(`<h2>No articles found</h2>`),
+            { headers: { "Content-Type": "text/html" } }
+          );
+        }
+
+        url.searchParams.set("date", latestDate);
+        return Response.redirect(url.toString(), 302);
       }
+      // ★ ADD END
+
 
       const key = `articles/${date}`;
       const raw = await env.newslite_kv.get(key);
@@ -137,4 +146,23 @@ function htmlWrapper(inner: string) {
 </body>
 </html>
 `;
+}
+
+/* --------------------------------------------------
+   Get latest date from KV
+-------------------------------------------------- */
+async function getLatestDate(env: Env): Promise<string | null> {
+  const list = await env.newslite_kv.list({ prefix: "articles/" });
+
+  if (!list.keys || list.keys.length === 0) {
+    return null;
+  }
+
+  // articles/YYYY-MM-DD → YYYY-MM-DD
+  const dates = list.keys
+    .map((k) => k.name.replace("articles/", ""))
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort();
+
+  return dates[dates.length - 1] ?? null;
 }
