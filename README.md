@@ -178,6 +178,31 @@ The Worker:
 
 ---
 
+
+# newslite-ui
+
+UI layer for NewsLite, built on Cloudflare Workers + KV.
+
+This project:
+- reads daily NewsLite JSON from Workers KV
+- renders HTML pages
+- plays audio files hosted on R2
+
+
+## Daily Operation
+
+(upload mp3 manually)
+↓
+python newslite_ui_daily_job.py        # preview
+↓
+http://localhost:8787/?date=YYYY-MM-DD
+↓
+python newslite_ui_daily_job.py --prod # production
+↓
+https://newslite.tarclog.com/?date=YYYY-MM-DD
+
+
+
 ## License
 
 MIT License.
